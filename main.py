@@ -47,13 +47,10 @@ def show_transposed_table(df):
     if df.empty:
         st.warning("No records found.")
         return
-    if "Date" in df.columns:
-        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-        df = df.sort_values(by="Date", ascending=False)
 
-    df_t = df.set_index("Date").T
+    df_t = df.T
+
     st.dataframe(df_t, use_container_width=True)
-
 
 
 
@@ -70,8 +67,8 @@ if page == "Milking & Feeding":
     
     df = load_csv(COW_LOG_CSV_URL, drop_cols=["Timestamp"])
     if not df.empty:
-        #st.dataframe(df, use_container_width=True)
-        show_transposed_table(df)
+        st.dataframe(df, use_container_width=True)
+        #show_transposed_table(df)
     else:
         st.info("No milking & feeding data available yet.")
 
@@ -82,16 +79,16 @@ elif page == "Milk Distribution":
     st.subheader("Morning Distribution")
     df_morning = load_csv(MILK_DIS_M_CSV_URL,drop_cols=["Timestamp"])
     if not df_morning.empty:
-        #st.dataframe(df_morning, use_container_width=True)
-        show_transposed_table(df_morning)
+        st.dataframe(df_morning, use_container_width=True)
+        #show_transposed_table(df_morning)
     else:
         st.info("No morning distribution data available.")
 
     st.subheader("Evening Distribution")
     df_evening = load_csv(MILK_DIS_E_CSV_URL, drop_cols=["Timestamp"])
     if not df_evening.empty:
-        #st.dataframe(df_evening, use_container_width=True)
-        show_transposed_table(df_evening)
+        st.dataframe(df_evening, use_container_width=True)
+        #show_transposed_table(df_evening)
     else:
         st.info("No evening distribution data available.")
 
@@ -114,7 +111,7 @@ elif page == "Investments":
     st.title("📈 Investment Log")
     df_invest = load_csv(INVESTMENT_CSV_URL, drop_cols=["Timestamp"])
     if not df_invest.empty:
-        #st.dataframe(df_invest, use_container_width=True)
-        show_transposed_table(df_invest)
+        st.dataframe(df_invest, use_container_width=True)
+        #show_transposed_table(df_invest)
     else:
         st.info("No investment data found yet.")
