@@ -43,6 +43,21 @@ def load_csv(url, drop_cols=None):
         return pd.DataFrame()
     
 
+def show_transposed_table(df):
+    if df.empty:
+        st.warning("No records found.")
+        return
+
+    
+    # Transpose the DataFrame
+    df_t = df.T
+    
+    # Rename columns to something readable
+    df_t.columns = [f"Record {i+1}" for i in range(len(df_t.columns))]
+    
+    # Display transposed DataFrame neatly
+    st.dataframe(df_t, use_container_width=True)
+
 
 
 
@@ -58,7 +73,8 @@ if page == "Milking & Feeding":
     
     df = load_csv(COW_LOG_CSV_URL, drop_cols=["Timestamp"])
     if not df.empty:
-        st.table(df)
+        #st.dataframe(df, use_container_width=True)
+        show_transposed_table(df)
     else:
         st.info("No milking & feeding data available yet.")
 
