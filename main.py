@@ -32,7 +32,7 @@ PAYMENT_CSV_URL = f"https://docs.google.com/spreadsheets/d/{PAYMENT_SHEET_ID}/gv
 
 
 @st.cache_data(ttl=600)
-def load_csv(url):
+def load_csv(url, drop_cols=None):
     try:
         df = pd.read_csv(url)
         if drop_cols:
