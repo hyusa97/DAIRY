@@ -54,7 +54,7 @@ if page == "Milking & Feeding":
     st.title("🐄 Milking & Feeding Log")
     st.caption("Daily cow log data including milk quantity, feed, and health details.")
     
-    df = load_csv(COW_LOG_CSV_URL)
+    df = load_csv(COW_LOG_CSV_URL, drop_cols=["Timestamp"])
     if not df.empty:
         st.dataframe(df, use_container_width=True)
     else:
@@ -65,14 +65,14 @@ elif page == "Milk Distribution":
     st.title("🥛 Milk Distribution")
 
     st.subheader("Morning Distribution")
-    df_morning = load_csv(MILK_DIS_M_CSV_URL)
+    df_morning = load_csv(MILK_DIS_M_CSV_URL,drop_cols=["Timestamp"])
     if not df_morning.empty:
         st.dataframe(df_morning, use_container_width=True)
     else:
         st.info("No morning distribution data available.")
 
     st.subheader("Evening Distribution")
-    df_evening = load_csv(MILK_DIS_E_CSV_URL)
+    df_evening = load_csv(MILK_DIS_E_CSV_URL, drop_cols=["Timestamp"])
     if not df_evening.empty:
         st.dataframe(df_evening, use_container_width=True)
     else:
@@ -80,7 +80,7 @@ elif page == "Milk Distribution":
 
 elif page == "Expense":
     st.title("💸 Expense Tracker")
-    df_expense = load_csv(EXPENSE_CSV_URL)
+    df_expense = load_csv(EXPENSE_CSV_URL, drop_cols=["Timestamp"])
     if not df_expense.empty:
         st.dataframe(df_expense, use_container_width=True)
     else:
@@ -88,14 +88,14 @@ elif page == "Expense":
 
 elif page == "Payments":
     st.title("💰 Payments Record")
-    df_payment = load_csv(PAYMENT_CSV_URL)
+    df_payment = load_csv(PAYMENT_CSV_URL, drop_cols=["Timestamp"])
     if not df_payment.empty:
         st.dataframe(df_payment, use_container_width=True)
     else:
         st.info("No payment records found.")
 elif page == "Investments":
     st.title("📈 Investment Log")
-    df_invest = load_csv(INVESTMENT_CSV_URL)
+    df_invest = load_csv(INVESTMENT_CSV_URL, drop_cols=["Timestamp"])
     if not df_invest.empty:
         st.dataframe(df_invest, use_container_width=True)
     else:
