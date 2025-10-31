@@ -1,17 +1,103 @@
 import streamlit as st 
+import pandas as pd
+import gspread
+from google.oauth2.service_account import Credentials
+
 st.set_page_config(page_title="Dairy Farm Management ", layout="wide")
-expense
+
+# Load Google Sheet IDs securely
+INVESTMENT_SHEET_ID = st.secrets["sheets"]["INVESTMENT_SHEET_ID"]
+MILK_DIS_M_SHEET_ID = st.secrets["sheets"]["MILK_DIS_M_SHEET_ID"]
+MILK_DIS_E_SHEET_ID = st.secrets["sheets"]["MILK_DIS_E_SHEET_ID"]
+EXPENSE_SHEET_ID = st.secrets["sheets"]["EXPENSE_SHEET_ID"]
+COW_LOG_SHEET_ID = st.secrets["sheets"]["COW_LOG_SHEET_ID"]
+PAYMENT_SHEET_ID = st.secrets["sheets"]["PAYMENT_SHEET_ID"]
+
+INVESTMENT_SHEET_NAME = "investment"
+INVESTMENT_CSV_URL = f"https://docs.google.com/spreadsheets/d/{INVESTMENT_SHEET_ID}/gviz/tq?tqx=out:csv&sheet={INVESTMENT_SHEET_NAME}"
+
+MILK_DIS_M_SHEET_NAME = "morning"
+MILK_DIS_M_CSV_URL = f"https://docs.google.com/spreadsheets/d/{MILK_DIS_M_SHEET_ID}/gviz/tq?tqx=out:csv&sheet={MILK_DIS_M_SHEET_NAME}"
+
+MILK_DIS_E_SHEET_NAME = "evening"
+MILK_DIS_E_CSV_URL = f"https://docs.google.com/spreadsheets/d/{MILK_DIS_E_SHEET_ID}/gviz/tq?tqx=out:csv&sheet={MILK_DIS_E_SHEET_NAME}"
+
+EXPENSE_SHEET_NAME = "expense"
+EXPENSE_CSV_URL = f"https://docs.google.com/spreadsheets/d/{EXPENSE_SHEET_ID}/gviz/tq?tqx=out:csv&sheet={EXPENSE_SHEET_NAME}"
+
+COW_LOG_SHEET_NAME = "dailylog"
+COW_LOG_CSV_URL = f"https://docs.google.com/spreadsheets/d/{COW_LOG_SHEET_ID}/gviz/tq?tqx=out:csv&sheet={COW_LOG_SHEET_NAME}"
+
+PAYMENT_SHEET_NAME = "payment"
+PAYMENT_CSV_URL = f"https://docs.google.com/spreadsheets/d/{PAYMENT_SHEET_ID}/gviz/tq?tqx=out:csv&sheet={PAYMENT_SHEET_NAME}"
+
+
+@st.cache_data(ttl=600)
+def load_csv(url):
+    try:
+        df = pd.read_csv(url)
+        return df
+    except Exception as e:
+        st.error(f"❌ Failed to load data from Google Sheet: {e}")
+        return pd.DataFrame()
+    
+
+
+
 
 st.sidebar.header("Navigation")
-page=st.sidebar.radio("Go to", ["Milking&Feeding", "Milk Distribution", "Expense", "Payments", "Investments"])
+page = st.sidebar.radio(
+    "Go to",
+    ["Milking & Feeding", "Milk Distribution", "Expense", "Payments", "Investments"]
+)
 
-if page=="Milking&Feeding":
-    st.write("Hello1")
-elif page=="Milk Distribution":
-    st.write("Hello2") 
-elif page=="Expense":
-    st.write("Hello3")
-elif page=="Payments":
-    st.write("Hello4")
-elif page=="Investments":
-    st.write("Hello5")
+if page == "Milking & Feeding":
+    st.title("🐄 Milking & Feeding Log")
+    st.caption("Daily cow log data including milk quantity, feed, and health details.")
+    
+    df = load_csv(COW_LOG_CSV_URL)
+    if not df.empty:
+        st.dataframe(df, use_container_width=True)
+    else:
+        st.info("No milking & feeding data available yet.")
+
+
+elif page == "Milk Distribution":
+    st.title("🥛 Milk Distribution")
+
+    st.subheader("Morning Distribution")
+    df_morning = load_csv(MILK_DIS_M_CSV_URL)
+    if not df_morning.empty:
+        st.dataframe(df_morning, use_container_width=True)
+    else:
+        st.info("No morning distribution data available.")
+
+    st.subheader("Evening Distribution")
+    df_evening = load_csv(MILK_DIS_E_CSV_URL)
+    if not df_evening.empty:
+        st.dataframe(df_evening, use_container_width=True)
+    else:
+        st.info("No evening distribution data available.")
+
+elif page == "Expense":
+    st.title("💸 Expense Tracker")
+    df_expense = load_csv(EXPENSE_CSV_URL)
+    if not df_expense.empty:
+        st.dataframe(df_expense, use_container_width=True)
+    else:
+        st.info("No expense records found.")
+
+elif page == "Payments":
+    st.title("💰 Payments Record")
+    df_payment = load_csv(PAYMENT_CSV_URL)
+    if not df_payment.empty:
+        st.dataframe(df_payment, use_container_width=True)
+    else:
+        st.info("No payment records found.")
+elif page == "Investments":
+    st.title("📈 Investment Log")
+    df_invest = load_csv(INVESTMENT_CSV_URL)
+    if not df_invest.empty:
+        st.dataframe(df_invest, use_container_width=True)
+    else:
+        st.info("No investment data found yet.")
