@@ -58,7 +58,7 @@ if page == "Milking & Feeding":
     
     df = load_csv(COW_LOG_CSV_URL, drop_cols=["Timestamp"])
     if not df.empty:
-        st.dataframe(df, use_container_width=True)
+        st.table(df)
     else:
         st.info("No milking & feeding data available yet.")
 
