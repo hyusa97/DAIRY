@@ -48,14 +48,8 @@ def show_transposed_table(df):
         st.warning("No records found.")
         return
 
-    
-    # Transpose the DataFrame
     df_t = df.T
-    
-    # Rename columns to something readable
-    df_t.columns = [f"Record {i+1}" for i in range(len(df_t.columns))]
-    
-    # Display transposed DataFrame neatly
+
     st.dataframe(df_t, use_container_width=True)
 
 
@@ -92,7 +86,8 @@ elif page == "Milk Distribution":
     st.subheader("Evening Distribution")
     df_evening = load_csv(MILK_DIS_E_CSV_URL, drop_cols=["Timestamp"])
     if not df_evening.empty:
-        st.dataframe(df_evening, use_container_width=True)
+        #st.dataframe(df_evening, use_container_width=True)
+        show_transposed_table(df)
     else:
         st.info("No evening distribution data available.")
 
@@ -115,6 +110,7 @@ elif page == "Investments":
     st.title("📈 Investment Log")
     df_invest = load_csv(INVESTMENT_CSV_URL, drop_cols=["Timestamp"])
     if not df_invest.empty:
-        st.dataframe(df_invest, use_container_width=True)
+        #st.dataframe(df_invest, use_container_width=True)
+        show_transposed_table(df)
     else:
         st.info("No investment data found yet.")
