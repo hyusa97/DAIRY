@@ -79,7 +79,8 @@ elif page == "Milk Distribution":
     st.subheader("Morning Distribution")
     df_morning = load_csv(MILK_DIS_M_CSV_URL,drop_cols=["Timestamp"])
     if not df_morning.empty:
-        st.dataframe(df_morning, use_container_width=True)
+        #st.dataframe(df_morning, use_container_width=True)
+        show_transposed_table(df_morning)
     else:
         st.info("No morning distribution data available.")
 
@@ -87,7 +88,7 @@ elif page == "Milk Distribution":
     df_evening = load_csv(MILK_DIS_E_CSV_URL, drop_cols=["Timestamp"])
     if not df_evening.empty:
         #st.dataframe(df_evening, use_container_width=True)
-        show_transposed_table(df)
+        show_transposed_table(df_evening)
     else:
         st.info("No evening distribution data available.")
 
@@ -111,6 +112,6 @@ elif page == "Investments":
     df_invest = load_csv(INVESTMENT_CSV_URL, drop_cols=["Timestamp"])
     if not df_invest.empty:
         #st.dataframe(df_invest, use_container_width=True)
-        show_transposed_table(df)
+        show_transposed_table(df_invest)
     else:
         st.info("No investment data found yet.")
