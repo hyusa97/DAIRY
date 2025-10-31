@@ -35,6 +35,8 @@ PAYMENT_CSV_URL = f"https://docs.google.com/spreadsheets/d/{PAYMENT_SHEET_ID}/gv
 def load_csv(url):
     try:
         df = pd.read_csv(url)
+        if drop_cols:
+            df = df.drop(columns=[col for col in drop_cols if col in df.columns])
         return df
     except Exception as e:
         st.error(f"❌ Failed to load data from Google Sheet: {e}")
