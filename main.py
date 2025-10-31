@@ -47,10 +47,13 @@ def show_transposed_table(df):
     if df.empty:
         st.warning("No records found.")
         return
+    if "Date" in df.columns:
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        df = df.sort_values(by="Date", ascending=False)
 
-    df_t = df.T
-
+    df_t = df.set_index("Date").T
     st.dataframe(df_t, use_container_width=True)
+
 
 
 
