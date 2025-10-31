@@ -13,8 +13,7 @@ COW_LOG_SHEET_ID = st.secrets["sheets"]["COW_LOG_SHEET_ID"]
 PAYMENT_SHEET_ID = st.secrets["sheets"]["PAYMENT_SHEET_ID"]
 
 INVESTMENT_SHEET_NAME = "investment"
-INVESTMENT_CSV_URL = f"https://docs.google.com/spreadsheets/d/{INVESTMENT_SHEET_ID}/export?format=csv&gid=1403468554"
-#INVESTMENT_CSV_URL = f"https://docs.google.com/spreadsheets/d/{INVESTMENT_SHEET_ID}/gviz/tq?tqx=out:csv&sheet={INVESTMENT_SHEET_NAME}"
+INVESTMENT_CSV_URL = f"https://docs.google.com/spreadsheets/d/{INVESTMENT_SHEET_ID}/gviz/tq?tqx=out:csv&sheet={INVESTMENT_SHEET_NAME}"
 
 MILK_DIS_M_SHEET_NAME = "morning"
 MILK_DIS_M_CSV_URL = f"https://docs.google.com/spreadsheets/d/{MILK_DIS_M_SHEET_ID}/gviz/tq?tqx=out:csv&sheet={MILK_DIS_M_SHEET_NAME}"
