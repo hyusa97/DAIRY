@@ -4,7 +4,6 @@ import pandas as pd
 
 st.set_page_config(page_title="Dairy Farm Management ", layout="wide")
 
-# Load Google Sheet IDs securely
 INVESTMENT_SHEET_ID = st.secrets["sheets"]["INVESTMENT_SHEET_ID"]
 MILK_DIS_M_SHEET_ID = st.secrets["sheets"]["MILK_DIS_M_SHEET_ID"]
 MILK_DIS_E_SHEET_ID = st.secrets["sheets"]["MILK_DIS_E_SHEET_ID"]
@@ -47,9 +46,7 @@ def show_transposed_table(df):
     if df.empty:
         st.warning("No records found.")
         return
-
     df_t = df.T
-
     st.dataframe(df_t, use_container_width=True)
 
 
@@ -115,3 +112,7 @@ elif page == "Investments":
         #show_transposed_table(df_invest)
     else:
         st.info("No investment data found yet.")
+
+    if st.sidebar.button("🔁 Refresh"):
+        st.cache_resource.clear()
+        st.experimental_rerun()    
