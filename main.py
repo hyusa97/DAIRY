@@ -114,5 +114,4 @@ elif page == "Investments":
         st.info("No investment data found yet.")
 
     if st.sidebar.button("🔁 Refresh"):
-        st.cache_resource.clear()
-        st.experimental_rerun()    
+        st.rerun()    
