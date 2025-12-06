@@ -877,9 +877,13 @@ elif page == "Payments":
 
 
 # ----------------------------
-# BILLING PAGE (single-customer view + quick due estimate + delivery calendar)
+# BILLING PAGE 
 # ----------------------------
 elif page == "Billing":
+    import calendar
+    from datetime import timedelta
+    from io import BytesIO
+
     st.title("🧾 Billing")
 
     # ---------------- Config ----------------
@@ -906,7 +910,6 @@ elif page == "Billing":
         if df is None or df.empty:
             return pd.DataFrame()
         df = df.copy()
-        # if Date exists parse it, else find any column containing 'date'
         if "Date" in df.columns:
             df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
             return df
@@ -933,13 +936,11 @@ elif page == "Billing":
         cols_e = [c for c in dfe.columns if c.lower() not in ("date", "timestamp")] if dfe is not None else []
         cols_p = []
         if dfp is not None and not dfp.empty:
-            # find likely name column in payments
             name_col = next((c for c in dfp.columns if c.lower() in ("name","customer","received by","receivedby")), None)
             if name_col:
                 cols_p = dfp[name_col].dropna().astype(str).unique().tolist()
         custs = sorted(set(cols_m) | set(cols_e) | set(cols_p))
         custs = [c for c in custs if str(c).strip() != ""]
-        # present "All customers" option at front
         return ["All customers"] + custs
 
     customers = customers_from_sheets(df_morning, df_evening, df_payments)
@@ -956,37 +957,29 @@ elif page == "Billing":
     st.markdown("---")
     cust_choice = st.selectbox("Choose Customer", options=customers, index=0)
 
-    # ---------------- Calendar builder (function) ----------------
-    import calendar
-    from datetime import timedelta
-
+    # ---------------- Calendar builder (updated dark palette) ----------------
     def build_delivery_calendar_html(df_morn, df_even, cust_raw, start_ts, end_ts):
-        # ensure DataFrames not None
         if df_morn is None:
             df_morn = pd.DataFrame()
         if df_even is None:
             df_even = pd.DataFrame()
 
-        # ensure Date column parsed
         for df in (df_morn, df_even):
             if df is not None and not df.empty and "Date" in df.columns:
                 df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
 
-        # mapping date -> (morning_total, evening_total)
         day_map = {}
         days = pd.date_range(start=start_ts, end=end_ts, freq="D")
         for d in days:
             m_val = 0.0
             e_val = 0.0
             if cust_raw == "All customers":
-                # morning
                 if not (df_morn is None) and not df_morn.empty and "Date" in df_morn.columns:
                     mask = df_morn["Date"].dt.normalize() == d.normalize()
                     if mask.any():
                         cols = [c for c in df_morn.columns if c.lower() not in ("date","timestamp")]
                         if cols:
                             m_val = pd.to_numeric(df_morn.loc[mask, cols], errors="coerce").fillna(0).sum().sum()
-                # evening
                 if not (df_even is None) and not df_even.empty and "Date" in df_even.columns:
                     mask = df_even["Date"].dt.normalize() == d.normalize()
                     if mask.any():
@@ -1004,39 +997,38 @@ elif page == "Billing":
                         e_val = pd.to_numeric(df_even.loc[mask, cust_raw], errors="coerce").fillna(0).sum()
             day_map[d.date()] = (float(m_val), float(e_val))
 
-        # calendar bounds and CSS
-        start_date = start_ts.date()
-        end_date = end_ts.date()
-        start_monday = start_date - timedelta(days=start_date.weekday())
-        end_sunday = end_date + timedelta(days=(6 - end_date.weekday()))
+        start_d = start_ts.date()
+        end_d = end_ts.date()
+        start_monday = start_d - timedelta(days=start_d.weekday())
+        end_sunday = end_d + timedelta(days=(6 - end_d.weekday()))
 
         css = """
         <style>
-          .cal-wrap { font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; max-width:900px; }
-          .cal-legend { display:flex; gap:12px; margin-bottom:8px; align-items:center; }
-          .legend-item { display:flex; gap:6px; align-items:center; font-size:0.95rem; color: #eee; }
-          .legend-swatch { width:18px; height:18px; border-radius:4px; border:1px solid #ccc; }
+          .cal-wrap { font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; max-width:980px; }
+          .cal-legend { display:flex; gap:18px; margin-bottom:10px; align-items:center; flex-wrap:wrap; }
+          .legend-item { display:flex; gap:8px; align-items:center; font-size:0.95rem; color:#e6eef2; }
+          .legend-swatch { width:18px; height:18px; border-radius:4px; border:1px solid rgba(255,255,255,0.08); }
           .cal-table { border-collapse: collapse; width:100%; }
-          .cal-table th { padding:8px; text-align:center; color: #cfd8dc; font-size:0.95rem; }
-          .cal-table td { width:14.28%; vertical-align:top; border:1px solid #263238; padding:8px; min-height:82px; }
-          .day-num { font-weight:700; font-size:0.95rem; margin-bottom:6px; display:block; }
-          .mval, .eval { font-size:0.88rem; display:block; color:#222; }
-          .white-cell { background: #ffffff; color:#000; }
-          .yellow-cell { background: #fff7cc; color:#000; }
-          .pink-cell { background: #ffe6f0; color:#000; }
-          .red-cell { background: #ffd6d6; color:#000; }
-          .muted { color:#777; font-size:0.9rem; background:#1b262b; }
-          .today { box-shadow: inset 0 0 0 2px #00FFFF44; border-radius:6px; }
+          .cal-table th { padding:10px; text-align:center; color: #bcd3da; font-size:0.95rem; background: transparent; }
+          .cal-table td { width:14.28%; vertical-align:top; border:1px solid rgba(255,255,255,0.04); padding:10px; min-height:86px; }
+          .day-num { font-weight:700; font-size:0.98rem; margin-bottom:6px; display:block; }
+          .mval, .eval { font-size:0.88rem; display:block; margin-top:4px; }
+          .white-cell { background: #e8f5e9; color:#062018; }   /* both shifts */
+          .yellow-cell { background: #FFD54F; color:#1b1700; }  /* only morning */
+          .pink-cell { background: #FF80AB; color:#2b0018; }    /* only evening */
+          .red-cell { background: #EF9A9A; color:#2b0000; }     /* no shift */
+          .muted { color:#6f7a80; font-size:0.92rem; background:transparent; }
+          .today { box-shadow: inset 0 0 0 2px rgba(0,255,255,0.12); border-radius:6px; }
+          .cal-table td span { line-height:1.2; }
         </style>
         """
 
         html = '<div class="cal-wrap">' + css
-        # legend (indicators)
         html += '<div class="cal-legend">'
-        html += '<div class="legend-item"><div class="legend-swatch" style="background:#ffffff;border:1px solid #888"></div><div>Both shifts delivered</div></div>'
-        html += '<div class="legend-item"><div class="legend-swatch" style="background:#fff7cc"></div><div>No evening (only morning)</div></div>'
-        html += '<div class="legend-item"><div class="legend-swatch" style="background:#ffe6f0"></div><div>No morning (only evening)</div></div>'
-        html += '<div class="legend-item"><div class="legend-swatch" style="background:#ffd6d6"></div><div>No shift delivery</div></div>'
+        html += '<div class="legend-item"><div class="legend-swatch" style="background:#e8f5e9;border:1px solid rgba(0,0,0,0.06)"></div><div>Both shifts delivered</div></div>'
+        html += '<div class="legend-item"><div class="legend-swatch" style="background:#FFD54F"></div><div>No evening (only morning)</div></div>'
+        html += '<div class="legend-item"><div class="legend-swatch" style="background:#FF80AB"></div><div>No morning (only evening)</div></div>'
+        html += '<div class="legend-item"><div class="legend-swatch" style="background:#EF9A9A"></div><div>No shift delivery</div></div>'
         html += '</div>'
 
         html += '<table class="cal-table"><thead><tr>'
@@ -1049,7 +1041,7 @@ elif page == "Billing":
             html += '<tr>'
             for i in range(7):
                 cell_date = cur
-                if cell_date < start_date or cell_date > end_date:
+                if cell_date < start_d or cell_date > end_d:
                     html += f'<td class="muted"><span class="day-num">{cell_date.day}</span></td>'
                 else:
                     mval, eval_ = day_map.get(cell_date, (0.0,0.0))
@@ -1205,8 +1197,17 @@ elif page == "Billing":
             calendar_html = build_delivery_calendar_html(df_morning, df_evening, cust_choice, start_ts, end_ts)
             st.markdown(calendar_html, unsafe_allow_html=True)
 
+            # ---------------- Download single invoice ----------------
+            buf = BytesIO()
+            with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+                df_invoice_preview.to_excel(writer, sheet_name="Bills", index=False)
+            buf.seek(0)
+            fname = f"invoice_{cust_choice}_{start_ts.strftime('%Y%m%d')}_{end_ts.strftime('%Y%m%d')}.xlsx"
+            st.download_button("Download Invoice Excel", data=buf, file_name=fname, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
     else:
         st.info("Choose a customer and period, then click 'View billing for selection'.")
+
 
 
 
