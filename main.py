@@ -1016,7 +1016,7 @@ elif page == "Billing":
           .white-cell { background: #e8f5e9; color:#062018; }   /* both shifts */
           .yellow-cell { background: #FFD54F; color:#1b1700; }  /* only morning */
           .pink-cell { background: #FF80AB; color:#2b0018; }    /* only evening */
-          .red-cell { background: #EF9A9A; color:#2b0000; }     /* no shift */
+          .red-cell { background: #FF0000; color:#ffffff; }     /* no shift */
           .muted { color:#6f7a80; font-size:0.92rem; background:transparent; }
           .today { box-shadow: inset 0 0 0 2px rgba(0,255,255,0.12); border-radius:6px; }
           .cal-table td span { line-height:1.2; }
