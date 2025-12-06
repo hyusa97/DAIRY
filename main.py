@@ -1089,37 +1089,6 @@ elif page == "Billing":
             df_invoice_preview = pd.DataFrame([invoice_row])
             st.dataframe(df_invoice_preview, use_container_width=True)
 
-            # ---------------- Offer to apply payments (FIFO) and preview final ----------------            #
-            if st.button("Apply payments (FIFO) to this invoice"):
-                # build minimal invoices df and apply payments (only this single invoice)
-                inv = df_invoice_preview.copy()
-                inv["Customer_norm"] = inv["CustomerName"].apply(norm_name)
-                inv["Balance"] = pd.to_numeric(inv["Balance"], errors="coerce").fillna(0.0)
-                inv["PaymentsApplied"] = pd.to_numeric(inv["PaymentsApplied"], errors="coerce").fillna(0.0)
-
-                # prepare payments (chronological) and apply to this invoice
-                payments_all = df_payments.copy() if df_payments is not None else pd.DataFrame()
-                name_col = next((c for c in payments_all.columns if c.lower() in ("name","customer","received by","receivedby")), None)
-                amount_col = next((c for c in payments_all.columns if "amount" in c.lower()), None)
-                if amount_col is None:
-                    st.error("Payments sheet missing 'Amount' column. Cannot apply payments.")
-                else:
-                    payments_all["Name_norm"] = payments_all[name_col].apply(norm_name) if name_col else ""
-                    payments_all["Amt_num"] = pd.to_numeric(payments_all[amount_col], errors="coerce").fillna(0.0)
-                    payments_all["Date_dt"] = pd.to_datetime(payments_all["Date"], errors="coerce") if "Date" in payments_all.columns else pd.NaT
-                    payments_all = payments_all.sort_values("Date_dt")
-                    # apply only payments for this customer (or all if name matches)
-                    remaining_payments = payments_all.loc[payments_all["Name_norm"] == norm_name(cust_choice), :].copy()
-                    # apply in chronological order to the single invoice
-                    remaining = remaining_payments["Amt_num"].sum()
-                    applied = min(remaining, float(inv.at[0,"Balance"]))
-                    inv.at[0,"PaymentsApplied"] = round(applied, 2)
-                    inv.at[0,"Balance"] = round(float(inv.at[0,"Balance"]) - applied, 2)
-                    inv["Status"] = inv.apply(lambda r: ("PAID" if abs(float(r["Balance"]))<1e-6 else ("PARTIAL" if float(r["PaymentsApplied"])>0 else "DUE")), axis=1)
-                    st.subheader("Invoice after applying payments")
-                    st.dataframe(inv.drop(columns=["Customer_norm"]), use_container_width=True)
-                    st.success(f"Applied ₹{applied:,.2f} to this invoice (from available payments for the customer).")
-
 
     else:
         st.info("Choose a customer and period, then click 'View billing for selection'.")
