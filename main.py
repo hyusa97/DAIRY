@@ -1028,7 +1028,7 @@ elif page == "Billing":
         html += '<div class="legend-item"><div class="legend-swatch" style="background:#e8f5e9;border:1px solid rgba(0,0,0,0.06)"></div><div>Both shifts delivered</div></div>'
         html += '<div class="legend-item"><div class="legend-swatch" style="background:#FFD54F"></div><div>No evening (only morning)</div></div>'
         html += '<div class="legend-item"><div class="legend-swatch" style="background:#FF80AB"></div><div>No morning (only evening)</div></div>'
-        html += '<div class="legend-item"><div class="legend-swatch" style="background:#EF9A9A"></div><div>No shift delivery</div></div>'
+        html += '<div class="legend-item"><div class="legend-swatch" style="background:#FF0000"></div><div>No shift delivery</div></div>'
         html += '</div>'
 
         html += '<table class="cal-table"><thead><tr>'
