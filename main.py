@@ -877,7 +877,7 @@ elif page == "Payments":
 
 
 # ----------------------------
-# BILLING PAGE (single-customer view + quick due estimate)
+# BILLING PAGE (single-customer view + quick due estimate + delivery calendar)
 # ----------------------------
 elif page == "Billing":
     st.title("🧾 Billing")
@@ -956,7 +956,124 @@ elif page == "Billing":
     st.markdown("---")
     cust_choice = st.selectbox("Choose Customer", options=customers, index=0)
 
-    # generate button
+    # ---------------- Calendar builder (function) ----------------
+    import calendar
+    from datetime import timedelta
+
+    def build_delivery_calendar_html(df_morn, df_even, cust_raw, start_ts, end_ts):
+        # ensure DataFrames not None
+        if df_morn is None:
+            df_morn = pd.DataFrame()
+        if df_even is None:
+            df_even = pd.DataFrame()
+
+        # ensure Date column parsed
+        for df in (df_morn, df_even):
+            if df is not None and not df.empty and "Date" in df.columns:
+                df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+
+        # mapping date -> (morning_total, evening_total)
+        day_map = {}
+        days = pd.date_range(start=start_ts, end=end_ts, freq="D")
+        for d in days:
+            m_val = 0.0
+            e_val = 0.0
+            if cust_raw == "All customers":
+                # morning
+                if not (df_morn is None) and not df_morn.empty and "Date" in df_morn.columns:
+                    mask = df_morn["Date"].dt.normalize() == d.normalize()
+                    if mask.any():
+                        cols = [c for c in df_morn.columns if c.lower() not in ("date","timestamp")]
+                        if cols:
+                            m_val = pd.to_numeric(df_morn.loc[mask, cols], errors="coerce").fillna(0).sum().sum()
+                # evening
+                if not (df_even is None) and not df_even.empty and "Date" in df_even.columns:
+                    mask = df_even["Date"].dt.normalize() == d.normalize()
+                    if mask.any():
+                        cols = [c for c in df_even.columns if c.lower() not in ("date","timestamp")]
+                        if cols:
+                            e_val = pd.to_numeric(df_even.loc[mask, cols], errors="coerce").fillna(0).sum().sum()
+            else:
+                if not (df_morn is None) and not df_morn.empty and cust_raw in df_morn.columns:
+                    mask = df_morn["Date"].dt.normalize() == d.normalize()
+                    if mask.any():
+                        m_val = pd.to_numeric(df_morn.loc[mask, cust_raw], errors="coerce").fillna(0).sum()
+                if not (df_even is None) and not df_even.empty and cust_raw in df_even.columns:
+                    mask = df_even["Date"].dt.normalize() == d.normalize()
+                    if mask.any():
+                        e_val = pd.to_numeric(df_even.loc[mask, cust_raw], errors="coerce").fillna(0).sum()
+            day_map[d.date()] = (float(m_val), float(e_val))
+
+        # calendar bounds and CSS
+        start_date = start_ts.date()
+        end_date = end_ts.date()
+        start_monday = start_date - timedelta(days=start_date.weekday())
+        end_sunday = end_date + timedelta(days=(6 - end_date.weekday()))
+
+        css = """
+        <style>
+          .cal-wrap { font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; max-width:900px; }
+          .cal-legend { display:flex; gap:12px; margin-bottom:8px; align-items:center; }
+          .legend-item { display:flex; gap:6px; align-items:center; font-size:0.95rem; color: #eee; }
+          .legend-swatch { width:18px; height:18px; border-radius:4px; border:1px solid #ccc; }
+          .cal-table { border-collapse: collapse; width:100%; }
+          .cal-table th { padding:8px; text-align:center; color: #cfd8dc; font-size:0.95rem; }
+          .cal-table td { width:14.28%; vertical-align:top; border:1px solid #263238; padding:8px; min-height:82px; }
+          .day-num { font-weight:700; font-size:0.95rem; margin-bottom:6px; display:block; }
+          .mval, .eval { font-size:0.88rem; display:block; color:#222; }
+          .white-cell { background: #ffffff; color:#000; }
+          .yellow-cell { background: #fff7cc; color:#000; }
+          .pink-cell { background: #ffe6f0; color:#000; }
+          .red-cell { background: #ffd6d6; color:#000; }
+          .muted { color:#777; font-size:0.9rem; background:#1b262b; }
+          .today { box-shadow: inset 0 0 0 2px #00FFFF44; border-radius:6px; }
+        </style>
+        """
+
+        html = '<div class="cal-wrap">' + css
+        # legend (indicators)
+        html += '<div class="cal-legend">'
+        html += '<div class="legend-item"><div class="legend-swatch" style="background:#ffffff;border:1px solid #888"></div><div>Both shifts delivered</div></div>'
+        html += '<div class="legend-item"><div class="legend-swatch" style="background:#fff7cc"></div><div>No evening (only morning)</div></div>'
+        html += '<div class="legend-item"><div class="legend-swatch" style="background:#ffe6f0"></div><div>No morning (only evening)</div></div>'
+        html += '<div class="legend-item"><div class="legend-swatch" style="background:#ffd6d6"></div><div>No shift delivery</div></div>'
+        html += '</div>'
+
+        html += '<table class="cal-table"><thead><tr>'
+        for wd in ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]:
+            html += f'<th>{wd}</th>'
+        html += '</tr></thead><tbody>'
+
+        cur = start_monday
+        while cur <= end_sunday:
+            html += '<tr>'
+            for i in range(7):
+                cell_date = cur
+                if cell_date < start_date or cell_date > end_date:
+                    html += f'<td class="muted"><span class="day-num">{cell_date.day}</span></td>'
+                else:
+                    mval, eval_ = day_map.get(cell_date, (0.0,0.0))
+                    morning_ok = mval > 0
+                    evening_ok = eval_ > 0
+                    if morning_ok and evening_ok:
+                        cls = "white-cell"
+                    elif morning_ok and not evening_ok:
+                        cls = "yellow-cell"
+                    elif not morning_ok and evening_ok:
+                        cls = "pink-cell"
+                    else:
+                        cls = "red-cell"
+                    today_cls = " today" if cell_date == pd.Timestamp.today().date() else ""
+                    html += f'<td class="{cls}{today_cls}"><span class="day-num">{cell_date.day}</span>'
+                    html += f'<span class="mval">M: {mval:.2f} L</span>'
+                    html += f'<span class="eval">E: {eval_:.2f} L</span>'
+                    html += '</td>'
+                cur = cur + timedelta(days=1)
+            html += '</tr>'
+        html += '</tbody></table></div>'
+        return html
+
+    # ---------------- generate button ----------------
     if st.button("View billing for selection"):
         start_ts = pd.to_datetime(pd.Timestamp(start_date).normalize())
         end_ts = pd.to_datetime(pd.Timestamp(end_date).normalize())
@@ -972,11 +1089,9 @@ elif page == "Billing":
                 total += pd.to_numeric(df_even.loc[mask, cust], errors="coerce").fillna(0).sum()
             return float(total)
 
-        # payments in period for a customer (normalized exact match)
         def payments_for_customer_in_period(pay_df, cust_raw, start, end):
             if pay_df is None or pay_df.empty:
                 return 0.0, pd.DataFrame()
-            # find payments name column
             name_col = next((c for c in pay_df.columns if c.lower() in ("name","customer","received by","receivedby")), None)
             amount_col = next((c for c in pay_df.columns if "amount" in c.lower()), None)
             if amount_col is None:
@@ -993,21 +1108,17 @@ elif page == "Billing":
                 total_pay = dfp_period.loc[dfp_period["Name_norm"] == norm_name(cust_raw), "Amt_num"].sum()
             return float(total_pay), dfp_period
 
-        # current outstanding from existing bills (if billing sheet exists)
         def current_outstanding_from_bills(bills_df, cust_raw):
             if bills_df is None or bills_df.empty:
                 return 0.0, pd.DataFrame()
-            # expect columns AmountBilled, PaymentsApplied, Balance, CustomerName (case-sensitive) possibly
             dfb = bills_df.copy()
             if "CustomerName" not in dfb.columns:
-                # try find a likely name column
                 name_col = next((c for c in dfb.columns if "customer" in c.lower()), None)
                 if name_col:
                     dfb["CustomerName"] = dfb[name_col]
                 else:
                     return 0.0, pd.DataFrame()
             dfb["Customer_norm"] = dfb["CustomerName"].apply(norm_name)
-            # ensure numeric
             if "AmountBilled" in dfb.columns:
                 dfb["AmountBilled_num"] = pd.to_numeric(dfb["AmountBilled"], errors="coerce").fillna(0.0)
             else:
@@ -1016,7 +1127,6 @@ elif page == "Billing":
                 dfb["PaymentsApplied_num"] = pd.to_numeric(dfb["PaymentsApplied"], errors="coerce").fillna(0.0)
             else:
                 dfb["PaymentsApplied_num"] = 0.0
-            # Balance could already exist
             if "Balance" in dfb.columns:
                 dfb["Balance_num"] = pd.to_numeric(dfb["Balance"], errors="coerce").fillna(dfb["AmountBilled_num"] - dfb["PaymentsApplied_num"])
             else:
@@ -1030,10 +1140,8 @@ elif page == "Billing":
                 subset = dfb.loc[dfb["Customer_norm"] == norm_name(cust_raw)].copy()
             return float(tot), subset
 
-        # ---------------- Compute quick figures ----------------
+        # ---------------- Compute quick figures & invoice preview ----------------
         if cust_choice == "All customers":
-            # Perform totals across all customers
-            # total generated amount = sum across all customers in the period
             custs_list = [c for c in ( [c for c in df_morning.columns if c.lower() not in ("date","timestamp")] + [c for c in df_evening.columns if c.lower() not in ("date","timestamp")]) if str(c).strip() != ""]
             custs_list = sorted(set(custs_list))
             generated_total = 0.0
@@ -1046,8 +1154,12 @@ elif page == "Billing":
             st.write(f"- Current outstanding from existing Bills sheet: ₹{current_outstanding_total:,.2f}")
             st.write(f"- Generated billing amount (period): ₹{generated_total:,.2f}")
             st.write(f"- Payments already received in period: ₹{payments_period_total:,.2f}")
+
+            # show calendar for All customers
+            calendar_html = build_delivery_calendar_html(df_morning, df_evening, "All customers", start_ts, end_ts)
+            st.markdown(calendar_html, unsafe_allow_html=True)
+
         else:
-            # single customer flow
             total_l = total_delivered_for_customer(df_morning, df_evening, cust_choice, start_ts, end_ts)
             generated_amount = round(total_l * float(rate_l), 2)
             payments_period, payments_df_period = payments_for_customer_in_period(df_payments, cust_choice, start_ts, end_ts)
@@ -1089,9 +1201,13 @@ elif page == "Billing":
             df_invoice_preview = pd.DataFrame([invoice_row])
             st.dataframe(df_invoice_preview, use_container_width=True)
 
+            # ---------------- show calendar for selected customer ----------------
+            calendar_html = build_delivery_calendar_html(df_morning, df_evening, cust_choice, start_ts, end_ts)
+            st.markdown(calendar_html, unsafe_allow_html=True)
 
     else:
         st.info("Choose a customer and period, then click 'View billing for selection'.")
+
 
 
 
