@@ -1197,14 +1197,6 @@ elif page == "Billing":
             calendar_html = build_delivery_calendar_html(df_morning, df_evening, cust_choice, start_ts, end_ts)
             st.markdown(calendar_html, unsafe_allow_html=True)
 
-            # ---------------- Download single invoice ----------------
-            buf = BytesIO()
-            with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-                df_invoice_preview.to_excel(writer, sheet_name="Bills", index=False)
-            buf.seek(0)
-            fname = f"invoice_{cust_choice}_{start_ts.strftime('%Y%m%d')}_{end_ts.strftime('%Y%m%d')}.xlsx"
-            st.download_button("Download Invoice Excel", data=buf, file_name=fname, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
     else:
         st.info("Choose a customer and period, then click 'View billing for selection'.")
 
