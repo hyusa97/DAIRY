@@ -27,6 +27,13 @@ COW_LOG_CSV_URL = f"https://docs.google.com/spreadsheets/d/{COW_LOG_SHEET_ID}/gv
 PAYMENT_CSV_URL = f"https://docs.google.com/spreadsheets/d/{PAYMENT_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=payment"
 
 # ============================================================
+# QUICK FORM LINKS (used in the UI for quick fixes)
+# ============================================================
+MILKING_FEEDING_FORM = "https://forms.gle/4ywNpoYLr7LFQtxe8"
+MORNING_DIST_FORM = "https://forms.gle/vWfoRDfPtzJiTKZw7"
+EVENING_DIST_FORM = "https://forms.gle/5f6Wuh7TNLtC2z9o6"
+
+# ============================================================
 # UTILITY FUNCTIONS
 # ============================================================
 @st.cache_data(ttl=600)
@@ -51,6 +58,84 @@ def sum_numeric_columns(df, exclude_cols=None):
     numeric_cols = [col for col in df.columns if col not in exclude_cols]
     df_numeric = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
     return df_numeric.sum().sum()
+
+
+# -------------------- Missing-entry helpers --------------------
+def normalize_date_col(df, candidates=("Date", "date")):
+    """Find a date column, parse it to datetime and standardize name to 'Date'."""
+    if df is None or df.empty:
+        return df if df is not None else pd.DataFrame()
+    for c in candidates:
+        if c in df.columns:
+            df = df.copy()
+            df["Date"] = pd.to_datetime(df[c], errors="coerce")
+            return df
+    # fallback: if any column name contains 'date' case-insensitive
+    for c in df.columns:
+        if "date" in c.lower():
+            df = df.copy()
+            df["Date"] = pd.to_datetime(df[c], errors="coerce")
+            return df
+    return df  # no date column found; return unchanged
+
+
+def detect_milk_col(df):
+    """Return first column name that looks like milk (case-insensitive)."""
+    if df is None or df.empty:
+        return None
+    for c in df.columns:
+        if "milk" in c.lower() or "दूध" in c.lower():
+            return c
+    return None
+
+
+def has_valid_milk_for_date(df, date, milk_col):
+    """Return True if for given date df has at least one numeric milk value > 0."""
+    if df is None or df.empty or milk_col is None:
+        return False
+    if "Date" not in df.columns:
+        return False
+    df_date = df[df["Date"].dt.normalize() == pd.Timestamp(date).normalize()]
+    if df_date.empty:
+        return False
+    vals = pd.to_numeric(df_date[milk_col], errors="coerce")
+    return (vals.fillna(0) > 0).any()
+
+
+def has_valid_distribution_for_date(df, date):
+    """
+    Return True if for given date df has any numeric value > 0
+    in non-Date / non-Timestamp columns.
+    """
+    if df is None or df.empty or "Date" not in df.columns:
+        return False
+    df_date = df[df["Date"].dt.normalize() == pd.Timestamp(date).normalize()]
+    if df_date.empty:
+        return False
+    # drop Date / Timestamp-like columns then coerce numeric
+    numeric_df = df_date.drop(columns=[c for c in df_date.columns if c.lower() in ("date", "timestamp")], errors="ignore")
+    if numeric_df.empty:
+        return False
+    numeric_df = numeric_df.apply(lambda col: pd.to_numeric(col, errors="coerce"))
+    row_sums = numeric_df.sum(axis=1, skipna=True).fillna(0)
+    return (row_sums > 0).any()
+
+
+def find_missing_dates_for_sheet(df, start_date, end_date, validator_fn):
+    """
+    Generic: expected dates from start_date..end_date (inclusive).
+    validator_fn(df, date) should return True if the date has valid data.
+    Returns sorted list of pd.Timestamp (dates) that are missing.
+    """
+    if pd.isna(start_date) or pd.isna(end_date) or end_date < start_date:
+        return []
+    expected = pd.date_range(start=start_date.normalize(), end=end_date.normalize(), freq="D")
+    missing = []
+    for d in expected:
+        if not validator_fn(df, d):
+            missing.append(pd.Timestamp(d))
+    return missing
+
 
 # ============================================================
 # SIDEBAR NAVIGATION
@@ -130,18 +215,40 @@ if page == "🏠 Dashboard":
     df_payment_received = load_csv(PAYMENT_CSV_URL, drop_cols=["Timestamp"])
     df_investment = load_csv(INVESTMENT_CSV_URL, drop_cols=["Timestamp"])
 
-    # -------------------- Filter from 1 Nov 2025 --------------------
-    for df in [df_cow_log, df_expense, df_milk_m, df_milk_e, df_payment_received, df_investment]:
-        if "Date" in df.columns:
-            df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-            df.dropna(subset=["Date"], inplace=True)
-            df = df[df["Date"] >= START_DATE]
+    # -------------------- Filter from START_DATE (apply filters to variables correctly) --------------------
+    def filter_from_start(df, start):
+        if df is None or df.empty or "Date" not in df.columns:
+            return df if df is not None else pd.DataFrame()
+        df = df.copy()
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        df = df.dropna(subset=["Date"])
+        return df[df["Date"] >= start]
+
+    df_cow_log = filter_from_start(df_cow_log, START_DATE)
+    df_expense = filter_from_start(df_expense, START_DATE)
+    df_milk_m = filter_from_start(df_milk_m, START_DATE)
+    df_milk_e = filter_from_start(df_milk_e, START_DATE)
+    df_payment_received = filter_from_start(df_payment_received, START_DATE)
+    df_investment = filter_from_start(df_investment, START_DATE)
+
+    # -------------------- Normalize Date columns for missing-checks --------------------
+    df_cow_log = normalize_date_col(df_cow_log)
+    df_milk_m = normalize_date_col(df_milk_m)
+    df_milk_e = normalize_date_col(df_milk_e)
+
+    # warn if sheets missing date column
+    if df_cow_log is None or "Date" not in df_cow_log.columns:
+        st.warning("Cow log sheet does not contain a recognized Date column — missing-entry detection will mark all dates as missing.")
+    if df_milk_m is None or "Date" not in df_milk_m.columns:
+        st.warning("Morning distribution sheet does not contain a recognized Date column — missing-entry detection will mark all dates as missing.")
+    if df_milk_e is None or "Date" not in df_milk_e.columns:
+        st.warning("Evening distribution sheet does not contain a recognized Date column — missing-entry detection will mark all dates as missing.")
 
     # -------------------- Lifetime Summary --------------------
     st.subheader("📊 Overall Summary")
 
-    milk_col = next((c for c in df_cow_log.columns if "milk" in c.lower() or "दूध" in c), None)
-    total_milk_produced = pd.to_numeric(df_cow_log[milk_col], errors="coerce").sum() if milk_col else 0
+    milk_col = detect_milk_col(df_cow_log)
+    total_milk_produced = pd.to_numeric(df_cow_log[milk_col], errors="coerce").sum() if milk_col and not (df_cow_log is None or df_cow_log.empty) else 0
 
     total_milk_m = sum_numeric_columns(df_milk_m, exclude_cols=["Timestamp", "Date"])
     total_milk_e = sum_numeric_columns(df_milk_e, exclude_cols=["Timestamp", "Date"])
@@ -187,72 +294,156 @@ if page == "🏠 Dashboard":
     st.subheader("🕒 Latest Summary")
     
     # --- Find last 2 milk produced records ---
-    df_sorted_prod = df_cow_log.sort_values("Date", ascending=False).head(2)
-    
+    if df_cow_log is None or df_cow_log.empty or "Date" not in df_cow_log.columns:
+        df_sorted_prod = pd.DataFrame()
+    else:
+        df_sorted_prod = df_cow_log.sort_values("Date", ascending=False).head(2)
+
     def get_shift_total(row):
         shift = row["Shift - पहर"] if "Shift - पहर" in row else row.get("Shift", "")
         milk_value = row[milk_col] if milk_col in row else 0
         milk_value = pd.to_numeric(milk_value, errors="coerce")
         return shift, milk_value
-    
-    latest_prod_1 = df_sorted_prod.iloc[0]
-    latest_prod_2 = df_sorted_prod.iloc[1]
-    
-    shift1, milk1 = get_shift_total(latest_prod_1)
-    shift2, milk2 = get_shift_total(latest_prod_2)
-    
-    date1 = latest_prod_1["Date"].strftime("%d-%m-%Y")
-    date2 = latest_prod_2["Date"].strftime("%d-%m-%Y")
-    
+
+    latest_prod_1 = None
+    latest_prod_2 = None
+    if not df_sorted_prod.empty and len(df_sorted_prod) >= 1:
+        latest_prod_1 = df_sorted_prod.iloc[0]
+    if not df_sorted_prod.empty and len(df_sorted_prod) >= 2:
+        latest_prod_2 = df_sorted_prod.iloc[1]
+
+    # safe defaults
+    if latest_prod_1 is None:
+        p1_date = ""
+        p1_shift = ""
+        p1_total = 0
+    else:
+        shift1, milk1 = get_shift_total(latest_prod_1)
+        p1_shift, p1_total = (shift1, milk1 if pd.notna(milk1) else 0)
+        p1_date = latest_prod_1["Date"].strftime("%d-%m-%Y") if pd.notna(latest_prod_1["Date"]) else ""
+
+    if latest_prod_2 is None:
+        p2_date = ""
+        p2_shift = ""
+        p2_total = 0
+    else:
+        shift2, milk2 = get_shift_total(latest_prod_2)
+        p2_shift, p2_total = (shift2, milk2 if pd.notna(milk2) else 0)
+        p2_date = latest_prod_2["Date"].strftime("%d-%m-%Y") if pd.notna(latest_prod_2["Date"]) else ""
+
     # --- Determine which distribution file to pick ---
     def get_latest_delivery(shift):
-        target_df = df_milk_m if shift.lower() == "morning" else df_milk_e
-        if target_df.empty:
+        if not isinstance(shift, str):
+            shift = str(shift) if pd.notna(shift) else ""
+        shift_lower = shift.lower() if shift else ""
+        target_df = df_milk_m if "morning" in shift_lower else df_milk_e
+        if target_df is None or target_df.empty or "Date" not in target_df.columns:
             return None, shift, 0
-    
+
         df_sorted = target_df.sort_values("Date", ascending=False)
-    
+        if df_sorted.empty:
+            return None, shift, 0
+
         row = df_sorted.iloc[0]
-    
+
         # Convert all columns except "Date" to numeric and sum
-        total = pd.to_numeric(
-            row.drop(labels=["Date"], errors="ignore"),
-            errors="coerce"
-        ).sum()
-    
-        date = row["Date"].strftime("%d-%m-%Y")
-    
+        numeric = row.drop(labels=["Date"], errors="ignore").apply(pd.to_numeric, errors="coerce")
+        total = numeric.fillna(0).sum()
+
+        date = row["Date"].strftime("%d-%m-%Y") if pd.notna(row["Date"]) else ""
         return date, shift, total
 
-    
     # Case based assignment:
     # If latest produced shift is Morning → order: P(M), D(M), P(E), D(E)
     # If Evening → order: P(E), D(E), P(M), D(M)
-    is_morning_first = shift1.lower() == "morning"
-    
+    is_morning_first = isinstance(p1_shift, str) and p1_shift.lower() == "morning"
+
     if is_morning_first:
-        p1_date, p1_shift, p1_total = date1, shift1, milk1
+        p1_date, p1_shift, p1_total = p1_date, p1_shift, p1_total
         d1_date, d1_shift, d1_total = get_latest_delivery("morning")
-        p2_date, p2_shift, p2_total = date2, shift2, milk2
+        p2_date, p2_shift, p2_total = p2_date, p2_shift, p2_total
         d2_date, d2_shift, d2_total = get_latest_delivery("evening")
     else:
-        p1_date, p1_shift, p1_total = date1, shift1, milk1
+        p1_date, p1_shift, p1_total = p1_date, p1_shift, p1_total
         d1_date, d1_shift, d1_total = get_latest_delivery("evening")
-        p2_date, p2_shift, p2_total = date2, shift2, milk2
+        p2_date, p2_shift, p2_total = p2_date, p2_shift, p2_total
         d2_date, d2_shift, d2_total = get_latest_delivery("morning")
-    
+
     # --- Layout: 4 Metric Blocks in ONE ROW ---
     lc1, lc2, lc3, lc4 = st.columns(4)
 
-    
     lc1.metric(f"🥛 Last Milk Produced ({p1_shift})", f"{p1_total} L", p1_date)
     lc2.metric(f"🚚 Last Milk Delivered ({d1_shift})", f"{d1_total} L", d1_date)
-    
+
     lc3.metric(f"🥛 Previous Milk Produced ({p2_shift})", f"{p2_total} L", p2_date)
     lc4.metric(f"🚚 Previous Milk Delivered ({d2_shift})", f"{d2_total} L", d2_date)
-    
+
     st.markdown("<hr/>", unsafe_allow_html=True)
-    
+
+    # -------------------- Missing Entries UI --------------------
+    # compute missing dates (today as end)
+    today_for_missing = pd.Timestamp.today()
+
+    missing_cow_dates = find_missing_dates_for_sheet(
+        df_cow_log, START_DATE, today_for_missing, lambda df, d: has_valid_milk_for_date(df, d, milk_col)
+    )
+
+    missing_morning_dates = find_missing_dates_for_sheet(
+        df_milk_m, START_DATE, today_for_missing, lambda df, d: has_valid_distribution_for_date(df, d)
+    )
+
+    missing_evening_dates = find_missing_dates_for_sheet(
+        df_milk_e, START_DATE, today_for_missing, lambda df, d: has_valid_distribution_for_date(df, d)
+    )
+
+    st.subheader("⚠️ Missing Entries (from 01-11-2025)")
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Milking missing", f"{len(missing_cow_dates)} days")
+    m2.metric("Morning dist missing", f"{len(missing_morning_dates)} days")
+    m3.metric("Evening dist missing", f"{len(missing_evening_dates)} days")
+
+    st.markdown("")  # small spacer
+
+    # Build compact table for most recent missing dates (show latest first)
+    rows = []
+    # combine with types and forms
+    for d in sorted(missing_cow_dates, reverse=True)[:10]:
+        rows.append({
+            "Date": d.strftime("%d-%m-%Y"),
+            "Type": "Milking",
+            "Action": f'<a href="{MILKING_FEEDING_FORM}" target="_blank"><button style="padding:6px;border-radius:6px;">Open Milking Form</button></a>'
+        })
+    for d in sorted(missing_morning_dates, reverse=True)[:10]:
+        rows.append({
+            "Date": d.strftime("%d-%m-%Y"),
+            "Type": "Morning Dist",
+            "Action": f'<a href="{MORNING_DIST_FORM}" target="_blank"><button style="padding:6px;border-radius:6px;">Open Morning Form</button></a>'
+        })
+    for d in sorted(missing_evening_dates, reverse=True)[:10]:
+        rows.append({
+            "Date": d.strftime("%d-%m-%Y"),
+            "Type": "Evening Dist",
+            "Action": f'<a href="{EVENING_DIST_FORM}" target="_blank"><button style="padding:6px;border-radius:6px;">Open Evening Form</button></a>'
+        })
+
+    if rows:
+        df_missing_display = pd.DataFrame(rows).sort_values(["Date", "Type"], ascending=[False, True])
+        # render as HTML so buttons work
+        st.write(df_missing_display.to_html(index=False, escape=False), unsafe_allow_html=True)
+        if st.checkbox("Show all missing dates"):
+            # show full lists (text) if user wants
+            st.write("### All missing Milking dates")
+            st.write([d.strftime("%d-%m-%Y") for d in missing_cow_dates])
+            st.write("### All missing Morning Distribution dates")
+            st.write([d.strftime("%d-%m-%Y") for d in missing_morning_dates])
+            st.write("### All missing Evening Distribution dates")
+            st.write([d.strftime("%d-%m-%Y") for d in missing_evening_dates])
+    else:
+        st.info("No missing entries detected between 01-11-2025 and today.")
+
+    st.markdown("<hr/>", unsafe_allow_html=True)
+
 
     # -------------------- Current Month Summary --------------------
     today = pd.Timestamp.today()
@@ -260,8 +451,8 @@ if page == "🏠 Dashboard":
     st.subheader(f"📅 Current Month Summary ({current_month_name})")
 
     def filter_month(df):
-        if df.empty or "Date" not in df.columns:
-            return df
+        if df is None or df.empty or "Date" not in df.columns:
+            return df if df is not None else pd.DataFrame()
         return df[df["Date"].dt.month == today.month]
 
     df_month_expense = filter_month(df_expense)
@@ -270,8 +461,8 @@ if page == "🏠 Dashboard":
     df_month_cow_log = filter_month(df_cow_log)
     df_month_payment = filter_month(df_payment_received)
 
-    milk_col = next((c for c in df_month_cow_log.columns if "milk" in c.lower() or "दूध" in c), None)
-    milk_month = pd.to_numeric(df_month_cow_log[milk_col], errors="coerce").sum() if milk_col else 0
+    milk_col = detect_milk_col(df_month_cow_log)
+    milk_month = pd.to_numeric(df_month_cow_log[milk_col], errors="coerce").sum() if milk_col and not (df_month_cow_log is None or df_month_cow_log.empty) else 0
     milk_m_month = sum_numeric_columns(df_month_milk_m, exclude_cols=["Timestamp", "Date"])
     milk_e_month = sum_numeric_columns(df_month_milk_e, exclude_cols=["Timestamp", "Date"])
     milk_distributed_month = milk_m_month + milk_e_month
@@ -290,7 +481,6 @@ if page == "🏠 Dashboard":
     st.markdown("<hr/>", unsafe_allow_html=True)
 
     # -------------------- Milk Production vs Delivery Graph --------------------
-    # -------------------- Milk Production vs Delivery Graph --------------------
     st.subheader("📈 Milk Production vs Delivery Trend")
     
     # --- Centered Radio Button for Date Range
@@ -300,7 +490,7 @@ if page == "🏠 Dashboard":
             "",
             ["1 Week", "1 Month", "3 Months", "6 Months", "1 Year", "3 Years", "5 Years", "Max"],
             horizontal=True,
-            index=1,  # Default to "3 Months"
+            index=2,  # Default to "3 Months"
         )
     
     # --- Determine date range based on selection
@@ -317,7 +507,8 @@ if page == "🏠 Dashboard":
     }[range_option]
     
     # --- Prepare production data
-    if not df_cow_log.empty and milk_col:
+    if not (df_cow_log is None) and not df_cow_log.empty and milk_col:
+        # ensure Date column is datetime
         df_cow_log["Date"] = pd.to_datetime(df_cow_log["Date"], errors="coerce")
         df_cow_log = df_cow_log[df_cow_log["Date"] >= date_limit]
         daily_prod = df_cow_log.groupby("Date")[milk_col].sum().reset_index()
@@ -327,18 +518,29 @@ if page == "🏠 Dashboard":
     # --- Combine morning & evening distribution
     def combine_distribution(df1, df2):
         df_all = pd.concat([df1, df2])
+        if df_all is None or df_all.empty or "Date" not in df_all.columns:
+            return pd.DataFrame(columns=["Date", "Total"])
+        df_all = df_all.copy()
         df_all["Date"] = pd.to_datetime(df_all["Date"], errors="coerce")
-        df_all["Total"] = df_all.select_dtypes(include="number").sum(axis=1)
+        # coerce non-date columns to numeric and sum per row
+        numeric_cols = [c for c in df_all.columns if c.lower() not in ("date", "timestamp")]
+        for c in numeric_cols:
+            df_all[c] = pd.to_numeric(df_all[c], errors="coerce").fillna(0)
+        df_all["Total"] = df_all[numeric_cols].sum(axis=1)
         return df_all.groupby("Date")["Total"].sum().reset_index()
     
     df_delivery = combine_distribution(df_milk_m, df_milk_e)
-    df_delivery = df_delivery[df_delivery["Date"] >= date_limit]
+    if not df_delivery.empty:
+        df_delivery = df_delivery[df_delivery["Date"] >= date_limit]
     
     # --- Display line chart
     if not daily_prod.empty and not df_delivery.empty:
         chart_df = pd.merge(daily_prod, df_delivery, on="Date", how="outer").fillna(0)
         chart_df = chart_df.rename(columns={milk_col: "Produced", "Total": "Delivered"})
-        st.line_chart(chart_df.set_index("Date"))
+        # ensure index is Date
+        chart_df = chart_df.sort_values("Date")
+        chart_df = chart_df.set_index("Date")
+        st.line_chart(chart_df)
     else:
         st.info("No sufficient data for chart.")
 
@@ -352,7 +554,7 @@ elif page == "Milking & Feeding":
     col1, col2 = st.columns([6, 1])
     with col2:
         st.markdown(
-            f'<a href="https://forms.gle/4ywNpoYLr7LFQtxe8" target="_blank">'
+            f'<a href="{MILKING_FEEDING_FORM}" target="_blank">'
             f'<button style="background-color:#81C7F5; color:white; padding:8px 16px; font-size:14px; border:none; border-radius:5px;">Milking & Feeding</button>'
             f'</a>',
             unsafe_allow_html=True
@@ -373,8 +575,9 @@ elif page == "Milking & Feeding":
 
     # --- Clean and filter helper ---
     def clean_and_filter(df):
-        if df.empty or "Date" not in df.columns:
-            return df
+        if df is None or df.empty or "Date" not in df.columns:
+            return df if df is not None else pd.DataFrame()
+        df = df.copy()
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
         df = df[df["Date"] >= start_date]
         df["Date"] = df["Date"].dt.strftime("%d-%m-%Y")
@@ -421,7 +624,7 @@ elif page == "Milking & Feeding":
 
     # --- Total Milk Distributed ---
     def total_milk_distributed(df):
-        if df.empty:
+        if df is None or df.empty:
             return 0
         numeric_cols = [c for c in df.columns if c not in ["Timestamp", "Date"]]
         df_numeric = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
@@ -484,8 +687,9 @@ elif page == "Milk Distribution":
     start_date = pd.Timestamp("2025-11-01")
 
     def clean_and_filter(df):
-        if df.empty or "Date" not in df.columns:
-            return df
+        if df is None or df.empty or "Date" not in df.columns:
+            return df if df is not None else pd.DataFrame()
+        df = df.copy()
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
         df = df[df["Date"] >= start_date]  # Filter only from 1 Nov 2025
         df["Date"] = df["Date"].dt.strftime("%d-%m-%Y")  # Format date
@@ -496,7 +700,7 @@ elif page == "Milk Distribution":
 
     # --- Total milk distributed (sum numeric columns except date) ---
     def total_milk_distributed(df):
-        if df.empty:
+        if df is None or df.empty:
             return 0
         numeric_cols = [c for c in df.columns if c not in ["Timestamp", "Date"]]
         df_numeric = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
@@ -511,8 +715,9 @@ elif page == "Milk Distribution":
     this_year = pd.Timestamp.now().year
 
     def monthly_distribution(df):
-        if df.empty or "Date" not in df.columns:
+        if df is None or df.empty or "Date" not in df.columns:
             return 0
+        df = df.copy()
         df["Date"] = pd.to_datetime(df["Date"], format="%d-%m-%Y", errors="coerce")
         df_this_month = df[
             (df["Date"].dt.month == this_month) & (df["Date"].dt.year == this_year)
@@ -525,7 +730,7 @@ elif page == "Milk Distribution":
 
     # --- Total milk produced this month from cow log (filter from 1 Nov 2025) ---
     total_milk_produced_month = 0
-    if not df_cow_log.empty:
+    if not (df_cow_log is None) and not df_cow_log.empty:
         df_cow_log.columns = [c.strip().lower() for c in df_cow_log.columns]
         if "date" in df_cow_log.columns and "milking -दूध" in df_cow_log.columns:
             df_cow_log["date"] = pd.to_datetime(df_cow_log["date"], errors="coerce")
@@ -556,14 +761,14 @@ elif page == "Milk Distribution":
         st.subheader("🌅 Morning Distribution")
     with col2:
         st.markdown(
-            f'<a href="https://forms.gle/vWfoRDfPtzJiTKZw7" target="_blank">'
+            f'<a href="{MORNING_DIST_FORM}" target="_blank">'
             f'<button style="background-color:#FFCA28; color:white; padding:8px 16px; font-size:14px; border:none; border-radius:5px;">Morning Distribution</button>'
             f'</a>',
             unsafe_allow_html=True
         )
     
         # ─────────────────────────────────────────────────────
-    if not df_morning.empty:
+    if not (df_morning is None) and not df_morning.empty:
         df_morning_display = df_morning.sort_values("Date", ascending=False)
         st.dataframe(df_morning_display, use_container_width=True)
     else:
@@ -577,7 +782,7 @@ elif page == "Milk Distribution":
         st.subheader("🌇 Evening Distribution")
     with col2:
         st.markdown(
-            f'<a href="https://forms.gle/5f6Wuh7TNLtC2z9o6" target="_blank">'
+            f'<a href="{EVENING_DIST_FORM}" target="_blank">'
             f'<button style="background-color:#FF7043; color:white; padding:8px 16px; font-size:14px; border:none; border-radius:5px;">Evening Distribution</button>'
             f'</a>',
             unsafe_allow_html=True
@@ -585,7 +790,7 @@ elif page == "Milk Distribution":
     
         # ─────────────────────────────────────────────────────
 
-    if not df_evening.empty:
+    if not (df_evening is None) and not df_evening.empty:
         df_evening_display = df_evening.sort_values("Date", ascending=False)
         st.dataframe(df_evening_display, use_container_width=True)
     else:
@@ -595,21 +800,31 @@ elif page == "Milk Distribution":
     st.divider()
     st.subheader("📈 Daily Milk Distribution Trend (from 1 Nov 2025)")
 
-    if not df_morning.empty or not df_evening.empty:
-        df_morning_chart = df_morning.copy()
-        df_evening_chart = df_evening.copy()
+    if not (df_morning is None) or not (df_evening is None):
+        df_morning_chart = df_morning.copy() if not (df_morning is None) and not df_morning.empty else pd.DataFrame()
+        df_evening_chart = df_evening.copy() if not (df_evening is None) and not df_evening.empty else pd.DataFrame()
 
         for df_temp in [df_morning_chart, df_evening_chart]:
+            if df_temp is None or df_temp.empty:
+                continue
             df_temp["Date"] = pd.to_datetime(df_temp["Date"], format="%d-%m-%Y", errors="coerce")
-            df_temp["Total"] = df_temp.select_dtypes(include=["number"]).sum(axis=1)
+            numeric_cols = [c for c in df_temp.columns if c.lower() not in ("date", "timestamp")]
+            for c in numeric_cols:
+                df_temp[c] = pd.to_numeric(df_temp[c], errors="coerce").fillna(0)
+            df_temp["Total"] = df_temp[numeric_cols].sum(axis=1)
 
-        df_chart = pd.concat([
-            df_morning_chart[["Date", "Total"]],
-            df_evening_chart[["Date", "Total"]],
-        ])
-        df_chart = df_chart.groupby("Date")["Total"].sum().reset_index().sort_values("Date")
+        pieces = []
+        if not (df_morning_chart is None) and not df_morning_chart.empty:
+            pieces.append(df_morning_chart[["Date", "Total"]])
+        if not (df_evening_chart is None) and not df_evening_chart.empty:
+            pieces.append(df_evening_chart[["Date", "Total"]])
 
-        st.line_chart(df_chart.set_index("Date"))
+        if pieces:
+            df_chart = pd.concat(pieces)
+            df_chart = df_chart.groupby("Date")["Total"].sum().reset_index().sort_values("Date")
+            st.line_chart(df_chart.set_index("Date"))
+        else:
+            st.info("No distribution data available to plot.")
     else:
         st.info("No distribution data available to plot.")
 
