@@ -15,6 +15,7 @@ MILK_DIS_E_SHEET_ID = st.secrets["sheets"]["MILK_DIS_E_SHEET_ID"]
 EXPENSE_SHEET_ID = st.secrets["sheets"]["EXPENSE_SHEET_ID"]
 COW_LOG_SHEET_ID = st.secrets["sheets"]["COW_LOG_SHEET_ID"]
 PAYMENT_SHEET_ID = st.secrets["sheets"]["PAYMENT_SHEET_ID"]
+BILLING_SHEET_ID = st.secrets["sheets"]["BILLING_SHEET_ID"]
 
 # ============================================================
 # GOOGLE SHEET CSV EXPORT LINKS
@@ -25,6 +26,7 @@ MILK_DIS_E_CSV_URL = f"https://docs.google.com/spreadsheets/d/{MILK_DIS_E_SHEET_
 EXPENSE_CSV_URL = f"https://docs.google.com/spreadsheets/d/{EXPENSE_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=expense"
 COW_LOG_CSV_URL = f"https://docs.google.com/spreadsheets/d/{COW_LOG_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=dailylog"
 PAYMENT_CSV_URL = f"https://docs.google.com/spreadsheets/d/{PAYMENT_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=payment"
+BILLING_CSV_URL = f"https://docs.google.com/spreadsheets/d/{BILLING_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Bills"
 
 # ============================================================
 # UTILITY FUNCTIONS
@@ -142,6 +144,7 @@ page = st.sidebar.radio(
         "Milk Distribution",
         "Expense",
         "Payments",
+        "Billing",
         "Investments",
     ],
 )
@@ -871,6 +874,259 @@ elif page == "Payments":
     
     df_payment = load_csv(PAYMENT_CSV_URL, drop_cols=["Timestamp"])
     st.dataframe(df_payment, use_container_width=True if not df_payment.empty else False)
+
+
+# ----------------------------
+# BILLING PAGE
+# ----------------------------
+elif page == "Billing":
+    st.title("🧾 Billing")
+
+    # ---------------- Config ----------------
+    FIXED_RATE_PER_L = 60.0  # ₹60 per litre (hard-coded)
+
+    # ---------------- Load data ----------------
+    df_morning = load_csv(MILK_DIS_M_CSV_URL, drop_cols=["Timestamp"])
+    df_evening = load_csv(MILK_DIS_E_CSV_URL, drop_cols=["Timestamp"])
+    df_payments = load_csv(PAYMENT_CSV_URL, drop_cols=["Timestamp"])
+
+    # normalize date columns if present
+    def ensure_date_col(df):
+        if df is None or df.empty:
+            return df if df is not None else pd.DataFrame()
+        # try existing 'Date' or other candidate
+        if "Date" not in df.columns:
+            for c in df.columns:
+                if "date" in c.lower():
+                    df = df.copy()
+                    df["Date"] = pd.to_datetime(df[c], errors="coerce")
+                    return df
+        else:
+            df = df.copy()
+            df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        return df
+
+    df_morning = ensure_date_col(df_morning)
+    df_evening = ensure_date_col(df_evening)
+    df_payments = ensure_date_col(df_payments)
+
+    # ---------------- Helpers ----------------
+    def norm_name(x):
+        if pd.isna(x):
+            return ""
+        return " ".join(str(x).strip().lower().split())
+
+    def customers_from_sheets(dfm, dfe):
+        cols_m = [c for c in dfm.columns if c.lower() not in ("date", "timestamp")] if dfm is not None else []
+        cols_e = [c for c in dfe.columns if c.lower() not in ("date", "timestamp")] if dfe is not None else []
+        # Filter out empty or purely numeric header names if any
+        custs = sorted(set(cols_m) | set(cols_e))
+        return [c for c in custs if str(c).strip() != ""]
+
+    def total_delivered_for_customer(df_morn, df_even, cust, start, end):
+        total = 0.0
+        if df_morn is not None and not df_morn.empty and cust in df_morn.columns:
+            mask = (df_morn["Date"] >= start) & (df_morn["Date"] <= end)
+            total += pd.to_numeric(df_morn.loc[mask, cust], errors="coerce").fillna(0).sum()
+        if df_even is not None and not df_even.empty and cust in df_even.columns:
+            mask = (df_even["Date"] >= start) & (df_even["Date"] <= end)
+            total += pd.to_numeric(df_even.loc[mask, cust], errors="coerce").fillna(0).sum()
+        return float(total)
+
+    # ---------------- UI: inputs ----------------
+    st.subheader("Generate invoices")
+    with st.form("billing_form"):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            start_date = st.date_input("Start date", value=pd.Timestamp.today().replace(day=1).date())
+        with col2:
+            end_date = st.date_input("End date", value=pd.Timestamp.today().date())
+        with col3:
+            rate_l = st.number_input("Rate (₹/L)", value=float(FIXED_RATE_PER_L), step=1.0)
+        generate = st.form_submit_button("Generate invoices preview")
+
+    if not generate:
+        st.info("Choose a start and end date then click 'Generate invoices preview'.")
+    else:
+        # convert date inputs to Timestamps (inclusive)
+        start_ts = pd.to_datetime(pd.Timestamp(start_date).normalize())
+        end_ts = pd.to_datetime(pd.Timestamp(end_date).normalize())
+
+        # ---------------- Build invoice preview ----------------
+        customers = customers_from_sheets(df_morning, df_evening)
+        if not customers:
+            st.warning("No customers found in distribution sheets.")
+        else:
+            rows = []
+            for cust in customers:
+                total_l = total_delivered_for_customer(df_morning, df_evening, cust, start_ts, end_ts)
+                milk_charge = round(total_l * float(rate_l), 2)
+                amount_billed = milk_charge  # simplified (no extras)
+                created = pd.Timestamp.now()
+                due = pd.Timestamp(end_ts) + pd.Timedelta(days=7)
+                billid = f"INV-{start_ts.strftime('%Y%m%d')}-{end_ts.strftime('%Y%m%d')}-{str(cust).replace(' ','_')}"
+                rows.append({
+                    "BillID": billid,
+                    "CustomerName": cust,
+                    "StartDate": start_ts.date(),
+                    "EndDate": end_ts.date(),
+                    "CreatedDate": created,
+                    "DueDate": due.date(),
+                    "TotalMilkLitres": round(total_l, 3),
+                    "RatePerL": float(rate_l),
+                    "MilkCharge": milk_charge,
+                    "AmountBilled": amount_billed,
+                    "PaymentsApplied": 0.0,
+                    "Balance": amount_billed,
+                    "Status": "DUE",
+                    "Notes": ""
+                })
+
+            df_invoices = pd.DataFrame(rows)
+            st.success(f"Generated {len(df_invoices)} invoice rows.")
+            st.dataframe(df_invoices, use_container_width=True)
+
+            # ---------------- Apply payments (FIFO) ----------------
+            st.subheader("Apply payments (FIFO)")
+            st.markdown("This will match payments from the Payments sheet to invoices for the same customer. Matching uses **exact normalized names**. Unmatched payments are reported separately.")
+            if df_payments is None or df_payments.empty:
+                st.info("No payments found in payments sheet.")
+                df_applied = df_invoices.copy()
+                unmatched_payments = pd.DataFrame(columns=["Date", "Name", "Amount"])
+            else:
+                # prepare payments: expected columns: Date, Name (or Name-like), Amount
+                payments = df_payments.copy()
+                # try find 'Name' column (common names seen in your sheet screenshot)
+                name_col = next((c for c in payments.columns if c.lower() in ("name","customer","name " ,"received by","receivedby")), None)
+                # fallback try 'Name' exact
+                if name_col is None:
+                    # try find column that isn't Date/Amount/Payment for/Received By
+                    non_candidates = set(["date","timestamp","amount","payment for","received by","receivedby"])
+                    name_col = None
+                    for c in payments.columns:
+                        if c.lower() not in non_candidates:
+                            name_col = c
+                            break
+                amount_col = next((c for c in payments.columns if "amount" in c.lower()), None)
+                if amount_col is None:
+                    st.error("Payments sheet missing 'Amount' column. Cannot apply payments.")
+                    df_applied = df_invoices.copy()
+                    unmatched_payments = payments[["Date"]].copy()
+                else:
+                    # normalize payments
+                    payments["Name_norm"] = payments[name_col].apply(norm_name) if name_col else ""
+                    payments["Amount_num"] = pd.to_numeric(payments[amount_col], errors="coerce").fillna(0.0)
+                    payments["Date_dt"] = pd.to_datetime(payments["Date"], errors="coerce") if "Date" in payments.columns else pd.NaT
+                    payments = payments.sort_values("Date_dt").reset_index(drop=True)
+
+                    # prepare invoices copy
+                    inv = df_invoices.copy()
+                    inv["Customer_norm"] = inv["CustomerName"].apply(norm_name)
+                    inv["Balance"] = pd.to_numeric(inv["Balance"], errors="coerce").fillna(0.0)
+                    inv["PaymentsApplied"] = pd.to_numeric(inv["PaymentsApplied"], errors="coerce").fillna(0.0)
+
+                    # For quick exactly matching names set:
+                    inv_index_by_customer = {}
+                    for idx, r in inv.iterrows():
+                        cname = r["Customer_norm"]
+                        inv_index_by_customer.setdefault(cname, []).append(idx)
+
+                    unmatched_rows = []
+                    # Apply payments in chronological order
+                    for _, p in payments.iterrows():
+                        pname = p.get("Name_norm", "")
+                        paid_amt = float(p.get("Amount_num", 0.0))
+                        if pname == "" or paid_amt <= 0:
+                            # skip zero or nameless payments, keep as unmatched
+                            unmatched_rows.append({"Date": p.get("Date"), "Name": p.get(name_col, ""), "Amount": paid_amt})
+                            continue
+
+                        # exact-match customer invoices
+                        matched_idxs = inv_index_by_customer.get(pname, [])
+                        if not matched_idxs:
+                            # no exact match -> keep unmatched (we will report)
+                            unmatched_rows.append({"Date": p.get("Date"), "Name": p.get(name_col, ""), "Amount": paid_amt})
+                            continue
+
+                        # apply payment FIFO to matched invoices (oldest invoice first)
+                        remaining = paid_amt
+                        for idx in matched_idxs:
+                            if remaining <= 0:
+                                break
+                            bal = float(inv.at[idx, "Balance"])
+                            if bal <= 0:
+                                continue
+                            apply_amt = min(bal, remaining)
+                            inv.at[idx, "PaymentsApplied"] = round(float(inv.at[idx, "PaymentsApplied"]) + apply_amt, 2)
+                            inv.at[idx, "Balance"] = round(float(inv.at[idx, "Balance"]) - apply_amt, 2)
+                            remaining -= apply_amt
+
+                        # if still remaining after applying to all invoices -> create unmatched credit row
+                        if remaining > 0:
+                            unmatched_rows.append({"Date": p.get("Date"), "Name": p.get(name_col, ""), "Amount": remaining})
+
+                    # update status
+                    def inv_status(row):
+                        b = float(row["Balance"])
+                        if b <= -0.0001:
+                            return "CREDIT"
+                        if abs(b) < 1e-6:
+                            return "PAID"
+                        if b > 0 and row["PaymentsApplied"] > 0:
+                            return "PARTIAL"
+                        return "DUE"
+
+                    inv["Status"] = inv.apply(inv_status, axis=1)
+                    df_applied = inv.drop(columns=["Customer_norm"]).copy()
+                    unmatched_payments = pd.DataFrame(unmatched_rows)
+
+                # show invoice table after applying payments
+                st.subheader("Invoices after applying payments")
+                st.dataframe(df_applied, use_container_width=True)
+
+                # show unmatched payments
+                st.subheader("Unmatched / leftover payments")
+                if unmatched_payments.empty:
+                    st.success("All payments matched to generated invoices (or there were no payments).")
+                else:
+                    st.warning("Some payments couldn't be matched by exact name to generated invoices. Please reconcile.")
+                    st.dataframe(unmatched_payments, use_container_width=True)
+
+            # ---------------- Download invoices as Excel ----------------
+            st.subheader("Download invoices")
+            if 'df_applied' in locals() and not df_applied.empty:
+                # prepare Excel in-memory
+                from io import BytesIO
+                import datetime
+                buf = BytesIO()
+                with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+                    df_applied.to_excel(writer, sheet_name="Bills", index=False)
+                    # small summary
+                    summary = pd.DataFrame([{
+                        "GeneratedOn": pd.Timestamp.now(),
+                        "StartDate": start_ts.date(),
+                        "EndDate": end_ts.date(),
+                        "NumInvoices": len(df_applied),
+                        "TotalBilled": df_applied["AmountBilled"].sum(),
+                        "TotalPaymentsApplied": df_applied["PaymentsApplied"].sum(),
+                        "TotalBalance": df_applied["Balance"].sum()
+                    }])
+                    summary.to_excel(writer, sheet_name="Summary", index=False)
+                buf.seek(0)
+                fname = f"invoices_{start_ts.strftime('%Y%m%d')}_{end_ts.strftime('%Y%m%d')}.xlsx"
+                st.download_button("Download Excel (Invoices)", data=buf, file_name=fname, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            else:
+                st.info("No invoices available to download.")
+
+            # ---------------- Option: show per-customer breakdown ----------------
+            st.subheader("Per-customer delivered liters (preview)")
+            cust_breakdown = []
+            for cust in customers:
+                tot = total_delivered_for_customer(df_morning, df_evening, cust, start_ts, end_ts)
+                cust_breakdown.append({"CustomerName": cust, "TotalLitres": tot, "Amount": round(tot * float(rate_l), 2)})
+            df_cust_break = pd.DataFrame(cust_breakdown).sort_values("CustomerName")
+            st.dataframe(df_cust_break, use_container_width=True)
+
 
 elif page == "Investments":
     st.title("📈 Investment Log")
