@@ -27,13 +27,6 @@ COW_LOG_CSV_URL = f"https://docs.google.com/spreadsheets/d/{COW_LOG_SHEET_ID}/gv
 PAYMENT_CSV_URL = f"https://docs.google.com/spreadsheets/d/{PAYMENT_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=payment"
 
 # ============================================================
-# QUICK FORM LINKS (used in the UI for quick fixes)
-# ============================================================
-MILKING_FEEDING_FORM = "https://forms.gle/4ywNpoYLr7LFQtxe8"
-MORNING_DIST_FORM = "https://forms.gle/vWfoRDfPtzJiTKZw7"
-EVENING_DIST_FORM = "https://forms.gle/5f6Wuh7TNLtC2z9o6"
-
-# ============================================================
 # UTILITY FUNCTIONS
 # ============================================================
 @st.cache_data(ttl=600)
@@ -51,7 +44,7 @@ def load_csv(url, drop_cols=None):
 
 def sum_numeric_columns(df, exclude_cols=None):
     """Sum all numeric columns except excluded ones"""
-    if df.empty:
+    if df is None or df.empty:
         return 0
     if exclude_cols is None:
         exclude_cols = []
@@ -407,32 +400,17 @@ if page == "🏠 Dashboard":
 
     # Build compact table for most recent missing dates (show latest first)
     rows = []
-    # combine with types and forms
     for d in sorted(missing_cow_dates, reverse=True)[:10]:
-        rows.append({
-            "Date": d.strftime("%d-%m-%Y"),
-            "Type": "Milking",
-            "Action": f'<a href="{MILKING_FEEDING_FORM}" target="_blank"><button style="padding:6px;border-radius:6px;">Open Milking Form</button></a>'
-        })
+        rows.append({"Date": d.strftime("%d-%m-%Y"), "Type": "Milking"})
     for d in sorted(missing_morning_dates, reverse=True)[:10]:
-        rows.append({
-            "Date": d.strftime("%d-%m-%Y"),
-            "Type": "Morning Dist",
-            "Action": f'<a href="{MORNING_DIST_FORM}" target="_blank"><button style="padding:6px;border-radius:6px;">Open Morning Form</button></a>'
-        })
+        rows.append({"Date": d.strftime("%d-%m-%Y"), "Type": "Morning Dist"})
     for d in sorted(missing_evening_dates, reverse=True)[:10]:
-        rows.append({
-            "Date": d.strftime("%d-%m-%Y"),
-            "Type": "Evening Dist",
-            "Action": f'<a href="{EVENING_DIST_FORM}" target="_blank"><button style="padding:6px;border-radius:6px;">Open Evening Form</button></a>'
-        })
+        rows.append({"Date": d.strftime("%d-%m-%Y"), "Type": "Evening Dist"})
 
     if rows:
         df_missing_display = pd.DataFrame(rows).sort_values(["Date", "Type"], ascending=[False, True])
-        # render as HTML so buttons work
-        st.write(df_missing_display.to_html(index=False, escape=False), unsafe_allow_html=True)
+        st.dataframe(df_missing_display, use_container_width=True)
         if st.checkbox("Show all missing dates"):
-            # show full lists (text) if user wants
             st.write("### All missing Milking dates")
             st.write([d.strftime("%d-%m-%Y") for d in missing_cow_dates])
             st.write("### All missing Morning Distribution dates")
@@ -550,15 +528,10 @@ if page == "🏠 Dashboard":
 elif page == "Milking & Feeding":
     st.title("🐄 Milking & Feeding Analysis")
 
-    # Add Milking & Feeding Button
+    # layout placeholder (no quick-form button)
     col1, col2 = st.columns([6, 1])
     with col2:
-        st.markdown(
-            f'<a href="{MILKING_FEEDING_FORM}" target="_blank">'
-            f'<button style="background-color:#81C7F5; color:white; padding:8px 16px; font-size:14px; border:none; border-radius:5px;">Milking & Feeding</button>'
-            f'</a>',
-            unsafe_allow_html=True
-        )
+        st.write("")  # intentionally left blank (button removed)
     
         # ─────────────────────────────────────────────────────
 
@@ -754,41 +727,25 @@ elif page == "Milk Distribution":
 
     st.divider()
 
-    # Add Morning Distribution Button
+    # Morning Distribution placeholder (button removed)
     col1, col2 = st.columns([6, 1])
     with col1:
-        # --- Morning Distribution Table ---
         st.subheader("🌅 Morning Distribution")
     with col2:
-        st.markdown(
-            f'<a href="{MORNING_DIST_FORM}" target="_blank">'
-            f'<button style="background-color:#FFCA28; color:white; padding:8px 16px; font-size:14px; border:none; border-radius:5px;">Morning Distribution</button>'
-            f'</a>',
-            unsafe_allow_html=True
-        )
+        st.write("")  # morning distribution quick-button removed
     
-        # ─────────────────────────────────────────────────────
     if not (df_morning is None) and not df_morning.empty:
         df_morning_display = df_morning.sort_values("Date", ascending=False)
         st.dataframe(df_morning_display, use_container_width=True)
     else:
         st.info("No morning distribution data available after 1 Nov 2025.")
 
-    
-    # Add Evening Distribution Button
+    # Evening Distribution placeholder (button removed)
     col1, col2 = st.columns([6, 1])
     with col1:
-        # --- Evening Distribution Table ---
         st.subheader("🌇 Evening Distribution")
     with col2:
-        st.markdown(
-            f'<a href="{EVENING_DIST_FORM}" target="_blank">'
-            f'<button style="background-color:#FF7043; color:white; padding:8px 16px; font-size:14px; border:none; border-radius:5px;">Evening Distribution</button>'
-            f'</a>',
-            unsafe_allow_html=True
-        )
-    
-        # ─────────────────────────────────────────────────────
+        st.write("")  # evening distribution quick-button removed
 
     if not (df_evening is None) and not df_evening.empty:
         df_evening_display = df_evening.sort_values("Date", ascending=False)
