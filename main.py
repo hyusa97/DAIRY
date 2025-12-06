@@ -1092,31 +1092,6 @@ elif page == "Billing":
                     st.warning("Some payments couldn't be matched by exact name to generated invoices. Please reconcile.")
                     st.dataframe(unmatched_payments, use_container_width=True)
 
-            # ---------------- Download invoices as Excel ----------------
-            st.subheader("Download invoices")
-            if 'df_applied' in locals() and not df_applied.empty:
-                # prepare Excel in-memory
-                from io import BytesIO
-                import datetime
-                buf = BytesIO()
-                with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-                    df_applied.to_excel(writer, sheet_name="Bills", index=False)
-                    # small summary
-                    summary = pd.DataFrame([{
-                        "GeneratedOn": pd.Timestamp.now(),
-                        "StartDate": start_ts.date(),
-                        "EndDate": end_ts.date(),
-                        "NumInvoices": len(df_applied),
-                        "TotalBilled": df_applied["AmountBilled"].sum(),
-                        "TotalPaymentsApplied": df_applied["PaymentsApplied"].sum(),
-                        "TotalBalance": df_applied["Balance"].sum()
-                    }])
-                    summary.to_excel(writer, sheet_name="Summary", index=False)
-                buf.seek(0)
-                fname = f"invoices_{start_ts.strftime('%Y%m%d')}_{end_ts.strftime('%Y%m%d')}.xlsx"
-                st.download_button("Download Excel (Invoices)", data=buf, file_name=fname, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            else:
-                st.info("No invoices available to download.")
 
             # ---------------- Option: show per-customer breakdown ----------------
             st.subheader("Per-customer delivered liters (preview)")
